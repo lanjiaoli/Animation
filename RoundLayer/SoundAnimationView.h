@@ -9,6 +9,6 @@
 #import <UIKit/UIKit.h>
 
 @interface SoundAnimationView : UIView
-- (void)startAnimation;//开始动画
-- (void)stopAnimation; //取消动画
+
+
 @end
