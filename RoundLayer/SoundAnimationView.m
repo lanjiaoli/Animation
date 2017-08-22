@@ -14,13 +14,24 @@
 #define kNormalBtnTitleColor kColorRGBA(62, 62, 62, 1)
 #define kSelectBtnTitleColor kColorRGBA(248, 95, 72, 1)
 #define kLabelNormalTextColor kColorRGBA(68, 133, 255, 1)
+#define kMaxLensileNumber 110
+#define kMinLensileNumber -30
+#define kTimeDownCount 50
+#define kFullTimeCount 60
 
+#define kTimeLabel_Y  18
+#define kTalkReminder @"按住说话"
+#define kClickSendStr @"点击发送"
+#define kHitShowString @"等录音完成,才能切换模式."
 @interface SoundAnimationView()
 {
     BOOL isSelect;
     NSInteger secondNum;
     UIView *btnView;
     BOOL isSendVoice;
+    BOOL isLongPress;
+    BOOL isLongPressImage;
+    BOOL isReminderHub; //长按自动发送后 是否提示
 }
 @property (nonatomic, strong) CAShapeLayer *shapeLayer;
 @property (nonatomic, strong) CAAnimationGroup* animaGroup;
@@ -32,6 +43,8 @@
 @property (nonatomic, strong) UIButton *clickBtn;
 @property (nonatomic, strong) UIButton *longPressBtn;
 @property (nonatomic, strong) UILabel *sendLabel;
+@property (nonatomic, strong) UIButton *cancelBtn;
+
 @end
 @implementation SoundAnimationView
 
@@ -39,6 +52,8 @@
     self = [super initWithFrame:frame];
     if (self) {
         secondNum = 0;
+        isLongPress = NO;
+        isReminderHub = YES;
         [self setupUI];
     }
     return self;
@@ -48,6 +63,9 @@
 - (void)setupUI{
     
     [self addSubview:self.timeLabel];
+    [self setLeftImageAndRightImage];
+    self.cancelBtn.hidden = YES;
+    [self addSubview:self.cancelBtn];
     [self.layer addSublayer:self.shapeLayer];
     [self addSubview:self.BGImageView];
     [self addSubview:self.clickBtn];
@@ -57,6 +75,15 @@
     isSelect = YES;
     [self setSwitchBtn];
     
+}
+- (void)setLeftImageAndRightImage{
+    UIImageView *leftImageView = [[UIImageView alloc]initWithFrame:kRectMake((screenWidth-radiusNum*2)/2-40, kTimeLabel_Y, 40, 15)];
+    leftImageView.image = [UIImage imageNamed:@"左侧波纹"];
+    [self addSubview:leftImageView];
+    
+    UIImageView *rightImageView = [[UIImageView alloc]initWithFrame:kRectMake((screenWidth-radiusNum*2)/2+80, kTimeLabel_Y, 40, 15)];
+    rightImageView.image = [UIImage imageNamed:@"右侧波纹"];
+    [self addSubview:rightImageView];
 }
 - (void)setSwitchBtn{
     
@@ -78,100 +105,208 @@
         [button addTarget:self action:@selector(switchBtnSelector:) forControlEvents:UIControlEventTouchUpInside];
         [btnView addSubview:button];
     }
+    
+    UILabel *pointLabel= [[UILabel alloc]init];
+    pointLabel.text = @"·";
+    pointLabel.textAlignment = NSTextAlignmentCenter;
+    pointLabel.font = [UIFont systemFontOfSize:13];
+    pointLabel.frame =kRectMake(screenWidth/2-25 + 50, 5, 16, 10);
+    [btnView addSubview:pointLabel];
 }
 #pragma mark - NSTimer Target
 - (void)timerTarget:(NSTimer *)time
 {
     secondNum++;
-    _timeLabel.text = [NSString stringWithFormat:@"%lds:60s",(long)secondNum];
-    
-    if (secondNum == 10) {
-        NSLog(@"你到时间了");
+    _timeLabel.text = [NSString stringWithFormat:@"%ld秒 : 60秒",(long)secondNum];
+    if (isLongPress) {
+        if(secondNum == kFullTimeCount){
+            self.reminderLabel.backgroundColor = [UIColor whiteColor];
+            self.reminderLabel.text =kTalkReminder;
+            [self.delegate didFinishWithSendVoice];
+            secondNum = 0;
+            [self stopAnimation];
+            isReminderHub = NO;
+        }
+    }else{
+        if (secondNum == kTimeDownCount) {
+            //倒计时显示
+            [self.delegate countdownReminderWithTimer];
+        }else if(secondNum == kFullTimeCount){
+            [self.delegate didFinishWithSendVoice];
+            secondNum = 0;
+            [self stopAnimation];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self publicMethodWithStart];
+            });
+            
+        }
     }
+    
 }
 
 #pragma mark - Animation Method
 //Start Animation
 - (void)startAnimation{
-    _timer = [NSTimer timerWithTimeInterval:1 target:self selector:@selector(timerTarget:) userInfo:nil repeats:YES];
+    if (!_timer) {
+        _timer = [NSTimer timerWithTimeInterval:1 target:self selector:@selector(timerTarget:) userInfo:nil repeats:YES];
+        [[NSRunLoop currentRunLoop]addTimer:_timer forMode:NSRunLoopCommonModes];
+    }
     _shapeLayer.fillColor = kColorRGBA(68, 138, 255, 1).CGColor;
-    [[NSRunLoop currentRunLoop]addTimer:_timer forMode:NSRunLoopCommonModes];
     [self.shapeLayer addAnimation:self.animaGroup forKey:@"scaleGroup"];
 }
 //Stop Animation
 - (void)stopAnimation{
     [_timer invalidate];
+    _timer = nil;
     if (_shapeLayer) {
         _shapeLayer.fillColor = kColorRGBA(255, 255, 255, 1).CGColor;
         
         [self.shapeLayer removeAllAnimations];
     }
-    secondNum = 0;
-    _timeLabel.text = [NSString stringWithFormat:@"%lds:60s",(long)secondNum];
+    _timeLabel.text = [NSString stringWithFormat:@"%ld秒 : 60秒",(long)secondNum];
     
 }
-
+#pragma mark - public Method
+- (void)publicMethodWithStart{
+    [self startAnimation];
+    _BGImageView.image = [UIImage imageNamed:@"bg"];
+    self.stopImageView.image = [UIImage imageNamed:@"暂停"];
+    [self.delegate clickEventSelect:NO];
+    
+    
+}
 #pragma mark - Button Method
 //click 点击方法
 - (void)btnSelect:(UIButton *)btn
 {
     
     if (isSelect) {
-        [self startAnimation];
+        [self publicMethodWithStart];
         isSelect = NO;
-        _BGImageView.image = [UIImage imageNamed:@"bg"];
-        self.stopImageView.image = [UIImage imageNamed:@"暂停"];
         isSendVoice  = NO;
-        
+        self.cancelBtn.hidden = NO;
     }else{
-        [self stopAnimation];
-        self.stopImageView.image = nil;
-        self.sendLabel.text = @"点击发送";
-        if (isSendVoice) {
-            [self clickSendVoice];
-            
+        
+        if (secondNum > 0) {
+            [self stopAnimation];
+            self.stopImageView.image = nil;
+            self.sendLabel.text = kClickSendStr;
+            if (isSendVoice) {
+                [self clickSendVoice];
+            }else{
+                if ([self.delegate respondsToSelector:@selector(SendVoiceWithClick)]) {
+                    [self.delegate SendVoiceWithClick];
+                }
+            }
+            isSendVoice  = YES;
+        }else{
+//            [self.viewController showHint:@"说话时间太短"];
         }
-        isSendVoice  = YES;
+        
         
     }
 }
+
 - (void)clickSendVoice{
-    
+    secondNum = 0;
     [self.delegate didFinishWithSendVoice];
     isSelect = YES;
     self.sendLabel.text = @"";
     self.BGImageView.image = [UIImage imageNamed:@"开始"];
-    NSLog(@"我发送了");
+    _timeLabel.text = [NSString stringWithFormat:@"%ld秒 : 60秒",(long)secondNum];
+    self.cancelBtn.hidden = YES;
+    
 }
 //长按点击方法
-- (void)longPressBtnSelect:(UIButton *)btn{
+- (void)longPressBtnSelect:(UIButton *)btn event:(UIEvent *)event{
+    UITouchPhase phase = event.allTouches.anyObject.phase;
+    isLongPress = YES;
+    if (phase == UITouchPhaseBegan) {
+        [self startVoice];
+        
+    }else if(phase == UITouchPhaseMoved){
+        CGPoint point =  [event.allTouches.anyObject locationInView:_longPressBtn];
+        if (point.y < kMinLensileNumber || point.y >= kMaxLensileNumber|| point.x >= kMaxLensileNumber ||point.x < kMinLensileNumber) {
+            [self.delegate moveTouchWithCancle:NO];
+        }else{
+            [self.delegate moveTouchWithCancle:YES];
+        }
+    }else if (phase == UITouchPhaseEnded){
+        CGPoint point =  [event.allTouches.anyObject locationInView:_longPressBtn];
+        if (point.y < kMinLensileNumber || point.y >= kMaxLensileNumber|| point.x >= kMaxLensileNumber ||point.x < kMinLensileNumber) {
+            [self canleSend];
+        }else{
+            self.reminderLabel.backgroundColor = [UIColor whiteColor];
+            self.reminderLabel.text =kTalkReminder;
+            if (secondNum >0) {
+                [self.delegate didFinishWithSendVoice];
+            }else{
+                if (isReminderHub) {
+//                    [self.viewController showHint:@"说话时间太短"];
+                    [self.delegate cancelSendVoice];
+                    
+                }else{
+                    NSLog(@"取消了");
+                    isReminderHub = YES;
+                }
+                
+            }
+            secondNum = 0;
+            [self stopAnimation];
+        }
+        
+    }
     
-    NSLog(@"长按区域");
+}
+- (void)startVoice{
+    [self.delegate clickEventSelect:YES];
     [self startAnimation];
     self.reminderLabel.backgroundColor = [UIColor clearColor];
     self.reminderLabel.text = @"";
 }
-- (void)buttonEventTouchUpInside:(UIButton *)btn{
-    NSLog(@"按完了");
-    [self.delegate didFinishWithSendVoice];
-    [self stopAnimation];
-    self.reminderLabel.backgroundColor = [UIColor whiteColor];
-    self.reminderLabel.text = @"按住说话";
-}
-- (void)buttonEventTouchUpOutside:(UIButton *)btn{
-    NSLog(@"不按了 取消");
+- (void)canleSend{
+    secondNum = 0;
     [self stopAnimation];
     [self.delegate cancelSendVoice];
     self.reminderLabel.backgroundColor = [UIColor whiteColor];
-    self.reminderLabel.text = @"按住说话";
+    self.reminderLabel.text = kTalkReminder;
+}
+- (void)buttonEventTouchUpInside:(UIButton *)btn{
+    [self.delegate didFinishWithSendVoice];
+    [self stopAnimation];
+    self.reminderLabel.backgroundColor = [UIColor whiteColor];
+    self.reminderLabel.text = kTalkReminder;
+}
+- (void)btnActionWithCancle:(UIButton *)btn{
+    
+    UIAlertController *alerController = [UIAlertController alertControllerWithTitle:@"取消当条语音录制" message:nil preferredStyle:UIAlertControllerStyleAlert];
+    
+    UIAlertAction *commentAction = [UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        NSLog(@"确定");
+        [self removeToSubView];
+        [self.delegate cancelSendVoice];
+    }];
+    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
+        NSLog(@"取消");
+    }];
+    
+    [alerController addAction:commentAction];
+    [alerController addAction:cancelAction];
+    [self.viewController presentViewController:alerController animated:YES completion:nil];
+    
+    
 }
 
 - (void)switchBtnSelector:(UIButton *)btn
 {
+    
     if (!isSelect) {
-        NSLog(@"再录音状态 不能点击切换");
+        
+//        [self.viewController showHint:kHitShowString];
+        
     }else{
         [self stopAnimation];
+        self.cancelBtn.hidden = YES;
         NSInteger tags = btn.tag-10;
         for (int i = 0; i <2; i++) {
             UIButton *selectBtn = [self viewWithTag:10+i];
@@ -182,6 +317,7 @@
             }
         }
         if (tags == 1) {
+            isLongPressImage = YES;
             [self.longPressBtn setEnabled:YES];
             [self.clickBtn setEnabled:NO];
             [UIView animateWithDuration:0.5 animations:^{
@@ -191,6 +327,8 @@
             self.stopImageView.image = [UIImage imageNamed:@"麦克风"];
             [self addSubview:self.reminderLabel];
         }else{
+            isLongPressImage = NO;
+            isLongPress = NO;
             [self.longPressBtn setEnabled:NO];
             [self.clickBtn setEnabled:YES];
             _BGImageView.image = [UIImage imageNamed:@"开始"];
@@ -209,7 +347,7 @@
 {
     if (_shapeLayer==nil) {
         _shapeLayer = [CAShapeLayer layer];
-        _shapeLayer.frame = CGRectMake((screenWidth-radiusNum*2)/2, 100, radiusNum*2, radiusNum*2);
+        _shapeLayer.frame = CGRectMake((screenWidth-radiusNum*2)/2, 40, radiusNum*2, radiusNum*2);
         _shapeLayer.fillColor = kColorRGBA(255, 255, 255, 1).CGColor;
         _shapeLayer.strokeColor = [UIColor clearColor].CGColor;
         //通过贝塞尔曲线绘制圆
@@ -237,6 +375,7 @@
         _animaGroup.animations = @[ expandAnimation,_opacityAnima];
         _animaGroup.duration = 2;
         _animaGroup.repeatCount = HUGE;
+        _animaGroup.removedOnCompletion = NO;
         _animaGroup.autoreverses = YES;
     }
     return _animaGroup;
@@ -245,11 +384,11 @@
 - (UILabel *)timeLabel{
     if (_timeLabel == nil) {
         _timeLabel= [[UILabel alloc]init];
-        _timeLabel.text = @"0s:60s";
+        _timeLabel.text = @"0秒 : 60秒";
         _timeLabel.textColor = kLabelNormalTextColor;
         _timeLabel.textAlignment = NSTextAlignmentCenter;
         _timeLabel.font = [UIFont systemFontOfSize:13];
-        _timeLabel.frame = CGRectMake(0, 68, screenWidth, 20);
+        _timeLabel.frame = CGRectMake(0, kTimeLabel_Y, screenWidth, 15);
         
     }
     return _timeLabel;
@@ -289,9 +428,7 @@
     if (_longPressBtn == nil) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
         button.frame = self.shapeLayer.frame;
-        [button addTarget:self action:@selector(longPressBtnSelect:) forControlEvents:UIControlEventTouchDown];
-        [button addTarget:self action:@selector(buttonEventTouchUpInside:) forControlEvents:UIControlEventTouchUpInside];
-        [button addTarget:self action:@selector(buttonEventTouchUpOutside:) forControlEvents:UIControlEventTouchDragExit];
+        [button addTarget:self action:@selector(longPressBtnSelect:event:) forControlEvents:UIControlEventAllTouchEvents];
         _longPressBtn = button;
     }
     return _longPressBtn;
@@ -301,10 +438,10 @@
     if (_reminderLabel == nil) {
         _reminderLabel = [[UILabel alloc]init];
         _reminderLabel.textColor = kLabelNormalTextColor;
-        _reminderLabel.frame =kRectMake(0, _timeLabel.frame.origin.y, screenWidth, 20);
-        _reminderLabel.text = @"按住说话";
+        _reminderLabel.frame =kRectMake(0, kTimeLabel_Y, screenWidth, 15);
+        _reminderLabel.text = kTalkReminder;
         _reminderLabel.textAlignment = NSTextAlignmentCenter;
-        _reminderLabel.font = [UIFont systemFontOfSize:12];
+        _reminderLabel.font = [UIFont systemFontOfSize:13];
         _reminderLabel.backgroundColor = [UIColor whiteColor];
     }
     return _reminderLabel;
@@ -321,9 +458,42 @@
     }
     return _sendLabel;
 }
-
-
-
-
+-(UIButton *)cancelBtn{
+    if (_cancelBtn==nil) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+        button.frame = kRectMake(screenWidth - 58, _timeLabel.frame.origin.y, 40, 15);
+        [button addTarget:self action:@selector(btnActionWithCancle:) forControlEvents:UIControlEventTouchUpInside];
+        UILabel* label = [[UILabel alloc]init];
+//        label.textColor = kColorRGBA(248, 95, 72);
+        label.frame =kRectMake(0, 0, button.frame.size.width, button.frame.size.height);
+        label.text = @"取消";
+        label.textAlignment = NSTextAlignmentRight;
+        label.font = [UIFont systemFontOfSize:12];
+        [button addSubview:label];
+        _cancelBtn = button;
+    }
+    return _cancelBtn;
+}
+#pragma mark - RemoveToSubView
+-(void)removeToSubView
+{
+    
+    [self stopAnimation];
+    secondNum = 0;
+    isSelect = YES;
+    self.sendLabel.text = @"";
+    if (isLongPressImage) {
+        self.BGImageView.image = [UIImage imageNamed:@"bg"];
+        self.stopImageView.image = [UIImage imageNamed:@"麦克风"];
+        
+        
+    }else{
+        self.BGImageView.image = [UIImage imageNamed:@"开始"];
+        self.stopImageView.image = nil;
+        
+    }
+    self.cancelBtn.hidden = YES;
+    _timeLabel.text = [NSString stringWithFormat:@"%ld秒 : 60秒",(long)secondNum];
+}
 
 @end
